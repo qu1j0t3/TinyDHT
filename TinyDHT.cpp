@@ -28,7 +28,7 @@ DHT::DHT(uint8_t pin, uint8_t type, uint8_t count) {
 
 void DHT::begin(void) {
   // set up the pins!
-  pinMode(_pin, INPUT);
+  pinMode(_pin, OUTPUT);
   digitalWrite(_pin, HIGH);
   _lastreadtime = 0;
 }
@@ -83,15 +83,37 @@ uint8_t DHT::readHumidity(void) { //  0-100 %
   return h == BAD_HUM ? BAD_HUM : h/10;
 }
 
-boolean DHT::read(void) {
-  uint8_t laststate = HIGH;
-  uint8_t counter = 0;
-  uint8_t j = 0, i;
-  unsigned long currenttime;
+// Avoid locking up due to unexpected states/electrical issues
+// 150us is longer than any reasonable state in the protocol
+boolean DHT::waitUntil(uint8_t forState) {
+  for(uint8_t i = 150; i--;) {
+    delayMicroseconds(1); // could avoid delay by estimating loop cycles per iteration
+    if (digitalRead(_pin) == forState) {
+      return true;
+    }
+  }
+  return false;
+}
 
-  // pull the pin high and wait 250 milliseconds
-  digitalWrite(_pin, HIGH);
-  delay(250);
+// Called when sensor is in the "start transmit" LOW period
+uint8_t DHT::readByte(void) {
+  uint8_t out = 0;
+  uint8_t shift = 7;
+  // bus should be in "start transmit" (LOW)
+  do {
+    // ignore timeouts, the checksum check can deal with it
+    if (!waitUntil(HIGH)) return 0; // wait till end of start transmit low
+    // pin is now high for 26-28us (0) or 70us (1)
+    delayMicroseconds(48);
+    out |= digitalRead(_pin) << shift;
+    if (!waitUntil(LOW)) return 0; // if necessary, wait for start transmit low
+  } while(shift--);
+  return out;
+}
+
+boolean DHT::read(void) {
+  uint8_t i;
+  unsigned long currenttime;
 
   currenttime = millis();
   if (currenttime < _lastreadtime) {
@@ -107,61 +129,41 @@ boolean DHT::read(void) {
     Serial.print("Currtime: "); Serial.print(currenttime);
     Serial.print(" Lasttime: "); Serial.print(_lastreadtime);
   */
-  _lastreadtime = millis();
+  _lastreadtime = currenttime;
 
-  data[0] = data[1] = data[2] = data[3] = data[4] = 0;
+  delay(20); // it's not clear why this is needed???
 
   // now pull it low for ~20 milliseconds
-  pinMode(_pin, OUTPUT);
   digitalWrite(_pin, LOW);
   delay(20);
   cli();
-  digitalWrite(_pin, HIGH);
-  delayMicroseconds(40);
-  pinMode(_pin, INPUT);
+  // sensor will try to pull bus high
+  pinMode(_pin, INPUT_PULLUP);
+  if (!waitUntil(HIGH)) goto timeout;
 
-  // read in timings
-  for (i = 0; i < MAXTIMINGS; i++) {
-    counter = 0;
-    while (digitalRead(_pin) == laststate) {
-      counter++;
-      delayMicroseconds(1);
-      if (counter == 255) {
-        break;
-      }
-    }
-    laststate = digitalRead(_pin);
-
-    if (counter == 255)
-      break;
-
-    // ignore first 3 transitions
-    if ((i >= 4) && (i % 2 == 0)) {
-      // shove each bit into the storage bytes
-      data[j / 8] <<= 1;
-      if (counter > _count)
-        data[j / 8] |= 1;
-      j++;
-    }
+  // wait for sensor to pull low
+  if (!waitUntil(LOW)) goto timeout;
+  // pin low for 80us
+  if (!waitUntil(HIGH)) goto timeout;
+  // pin high for 80us
+  if (!waitUntil(LOW)) goto timeout;
+  // pin is now low for 50us ("start transmit")
+  for(i = 0; i < 5; ++i) {
+    data[i] = readByte();
   }
-
   sei();
+  delay(1); // sensor is supposed to pull bus down for 50us after transmission
+  // then host pulls it up as the idle state until next reading
+  pinMode(_pin, OUTPUT);
+  digitalWrite(_pin, HIGH);
 
-  /*
-  Serial.println(j, DEC);
-  Serial.print(data[0], HEX); Serial.print(", ");
-  Serial.print(data[1], HEX); Serial.print(", ");
-  Serial.print(data[2], HEX); Serial.print(", ");
-  Serial.print(data[3], HEX); Serial.print(", ");
-  Serial.print(data[4], HEX); Serial.print(" =? ");
-  Serial.println(data[0] + data[1] + data[2] + data[3], HEX);
-  */
+  // check that the checksum matches
+  return data[4] == (data[0] + data[1] + data[2] + data[3]) & 0xFF;
 
-  // check we read 40 bits and that the checksum matches
-  if ((j >= 40) &&
-      (data[4] == ((data[0] + data[1] + data[2] + data[3]) & 0xFF))) {
-    return true;
-  }
-
+timeout: // maybe sensor got confused?
+  sei();
+  delay(20);
+  pinMode(_pin, OUTPUT);
+  digitalWrite(_pin, HIGH);
   return false;
 }

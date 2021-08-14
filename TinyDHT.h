@@ -40,6 +40,8 @@ private:
   uint8_t data[6];
   uint8_t _pin, _type, _count;
   boolean read(void);
+  boolean waitUntil(uint8_t forState);
+  uint8_t readByte(void);
   unsigned long _lastreadtime;
   boolean firstreading;
 
