@@ -33,8 +33,8 @@ void DHT::begin(void) {
   _lastreadtime = 0;
 }
 
-// boolean S == Scale.  True == Farenheit; False == Celcius
-int16_t DHT::readTemperature(bool S) {
+// tenths of a degree, always C.
+int16_t DHT::readTemperatureTenths(bool S) {
   int16_t f;
 
   if (read()) {
@@ -43,29 +43,25 @@ int16_t DHT::readTemperature(bool S) {
       f = (int16_t)data[2];
       if (S)
         f = convertCtoF(f);
-
       return f;
     case DHT22:
     case DHT21:
-      f = (int16_t)(data[2] & 0x7F);
-      f *= 256;
-      f += (int16_t)data[3];
-      f /= 10;
-      if (data[2] & 0x80)
-        f *= -1;
-      if (S)
-        f = convertCtoF(f);
-
-      return f;
+      f = (int16_t)(data[2] & 0x7F) * 256 + (int16_t)data[3];
+      return data[2] & 0x80 ? -f : f;
     }
   }
   /* Serial.print("Read fail"); */
   return BAD_TEMP; // Bad read, return value (from TinyDHT.h)
 }
 
+int16_t DHT::readTemperature(bool S) {
+  uint16_t t = readTemperatureTenths();
+  return t == BAD_TEMP ? BAD_TEMP : (S ? convertCtoF(t) : t)/10;
+}
+
 int16_t DHT::convertCtoF(int16_t c) { return (c * 9) / 5 + 32; }
 
-uint8_t DHT::readHumidity(void) { //  0-100 %
+uint16_t DHT::readHumidityTenths(void) { // tenths of a percent (0-1000)
   uint8_t f;
   uint16_t f2; // bigger to allow for math operations
   if (read()) {
@@ -75,16 +71,16 @@ uint8_t DHT::readHumidity(void) { //  0-100 %
       return f;
     case DHT22:
     case DHT21:
-      f2 = (uint16_t)data[0];
-      f2 *= 256;
-      f2 += data[1];
-      f2 /= 10;
-      f = (uint8_t)f2;
-      return f;
+      return (uint16_t)data[0] * 256 + data[1];
     }
   }
   /* Serial.print("Read fail"); */
   return BAD_HUM; // return bad value (defined in TinyDHT.h)
+}
+
+uint8_t DHT::readHumidity(void) { //  0-100 %
+  uint16_t h = readHumidityTenths();
+  return h == BAD_HUM ? BAD_HUM : h/10;
 }
 
 boolean DHT::read(void) {

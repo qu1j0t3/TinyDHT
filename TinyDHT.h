@@ -26,8 +26,11 @@ written by Adafruit Industries
 #define AM2301 21 //!< Used to specify that you want to use the AM2301
 
 // NAN code in DHT library takes space, define bad values here
-#define BAD_HUM -1    //!< Bad humitidy reading
+#define BAD_HUM -1    //!< Bad humidity reading
 #define BAD_TEMP -999 //!< Bad temperature reading
+
+#define CELSIUS_SCALE false
+#define FAHRENHEIT_SCALE true
 
 /*!
  * @brief Class that stores the state and functions for the DHT
@@ -55,13 +58,14 @@ public:
   void begin(void);
   /*!
    * @brief Reads the temperature from device
-   * @param S Scale. True = Fahrenheit, False = Celcius
+   * @param S Scale. True = Fahrenheit, False = Celsius
    * @return Returns the temperature
    */
+  int16_t readTemperatureTenths(bool S = false);
   int16_t readTemperature(bool S = false);
   /*!
-   * @brief Converts Celcius to Fahrenheit
-   * @param c Degrees celcius
+   * @brief Converts Celsius to Fahrenheit
+   * @param c Degrees celsius
    * @return Returns the inputted degrees converted to Fahrenheit
    */
   int16_t convertCtoF(int16_t);
@@ -69,6 +73,7 @@ public:
    * @brief Reads the humidity from the device
    * @return Returns the humidity read from the device
    */
+  uint16_t readHumidityTenths(void);
   uint8_t readHumidity(void);
 };
 #endif
